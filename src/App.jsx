@@ -1,0 +1,195 @@
+import React, { useState } from 'react';
+import Header from './components/Header';
+import Hero from './components/Hero';
+import Dashboard from './components/Dashboard';
+import Chatbot from './components/Chatbot';
+import { api } from './lib/api';
+
+import { Routes, Route } from 'react-router-dom';
+import QualificationExam from './components/QualificationExam';
+
+function App() {
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
+
+    // Initialize with safe default or localStorage data to prevent blank screen
+    const [users, setUsers] = useState(() => {
+        const savedUsers = localStorage.getItem('app_users');
+        return savedUsers ? JSON.parse(savedUsers) : [
+            { id: 1, name: '전민재', company: '품질보증부', email: 'mjjeon@shinwoovalve.com', password: '1', date: '2025-12-30', status: 'Active' },
+            { id: 2, name: '손양수', company: '품질보증부', email: 'ysson@shinwoovalve.com', password: '11', date: '2025-12-30', status: 'Active' },
+            { id: 3, name: '오민석', company: '품질보증부', email: 'msoh@shinwoovalve.com', password: '111', date: '2025-12-30', status: 'Active' },
+        ];
+    });
+
+    // API URL - Proxy handled (works for local and tunnel)
+    const API_URL = '/users';
+
+    const fetchUsers = async () => {
+        try {
+            const response = await api.fetch(API_URL);
+            if (!response.ok) throw new Error('Server not ready');
+            const data = await response.json();
+            if (Array.isArray(data)) {
+                setUsers(data);
+            }
+        } catch (error) {
+            console.log('API Server inaccessible, keeping local/default data.');
+            // No action needed; we already have default data in state
+        }
+    };
+
+    // Fetch users from API on load and poll every 2 seconds
+    React.useEffect(() => {
+        fetchUsers();
+        const interval = setInterval(fetchUsers, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const handleLogin = (identifier, password) => {
+        // Handle Admin Login (explicit or via credentials)
+        if (identifier === true || (identifier?.trim() === 'jmj4007' && password?.trim() === '880228')) {
+            setIsLoggedIn(true);
+            setIsAdmin(true);
+            setCurrentUser({ name: '관리자', email: 'admin', company: 'System', isAdmin: true });
+            return;
+        }
+
+        // Check for matching user from loaded users
+        const cleanIdentifier = identifier?.trim();
+        const cleanPassword = password?.trim();
+
+        const user = users.find(u => u.email === cleanIdentifier && u.password === cleanPassword);
+
+        if (user) {
+            if (user.status !== 'Active') {
+                alert('계정이 승인 대기 중이거나 비활성화 상태입니다.\n관리자 승인 후 로그인할 수 있습니다.');
+                return;
+            }
+            setIsLoggedIn(true);
+            setIsAdmin(false);
+            setCurrentUser(user);
+        } else {
+            alert('이메일 또는 비밀번호가 올바르지 않습니다.\n(입력하신 정보: ' + cleanIdentifier + ')');
+        }
+    };
+
+    const handleSignup = async (userData) => {
+        const newUser = {
+            ...userData,
+            id: Date.now(), // json-server generates IDs but we can control them to be safe
+            date: new Date().toISOString().split('T')[0],
+            status: 'Pending' // Default to Pending for admin approval
+        };
+
+        try {
+            await api.fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUser)
+            });
+            await fetchUsers(); // Refresh list
+            alert('회원가입이 완료되었습니다!\n관리자 승인 후 로그인 가능합니다.');
+        } catch (error) {
+            alert('회원가입 실패: ' + error.message);
+        }
+    };
+
+    const handleAddMember = async (newUser) => {
+        const memberData = {
+            ...newUser,
+            id: Date.now(),
+            date: new Date().toISOString().split('T')[0],
+            status: 'Active'
+        };
+        try {
+            await api.fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(memberData)
+            });
+            await fetchUsers(); // Refresh list
+        } catch (error) {
+            alert('추가 실패: ' + error.message);
+        }
+    };
+
+    const handleDeleteUser = async (id) => {
+        if (window.confirm('정말 이 회원을 삭제하시겠습니까?')) {
+            try {
+                await api.fetch(`${API_URL}/${id}`, {
+                    method: 'DELETE',
+                });
+                await fetchUsers(); // Refresh list
+            } catch (error) {
+                alert('삭제 실패: ' + error.message);
+            }
+        }
+    };
+
+    const handleEditUser = async (updatedUser) => {
+        try {
+            await api.fetch(`${API_URL}/${updatedUser.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedUser)
+            });
+            await fetchUsers(); // Refresh list
+
+            // If the edited user is the current user, update currentUser as well
+            if (currentUser && currentUser.id === updatedUser.id) {
+                setCurrentUser(updatedUser);
+            }
+        } catch (error) {
+            alert('수정 실패: ' + error.message);
+        }
+    };
+
+    const handleLogout = () => {
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+        setCurrentUser(null);
+    };
+
+    const handleUpdateProfile = (updatedData) => {
+        if (!currentUser) return;
+        const updatedUser = { ...currentUser, ...updatedData };
+        handleEditUser(updatedUser);
+        alert('프로필이 수정되었습니다.');
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col">
+            <Routes>
+                <Route path="/exam" element={<QualificationExam />} />
+                <Route path="/" element={
+                    <>
+                        <Header isLoggedIn={isLoggedIn} onLogout={handleLogout} currentUser={currentUser} onUpdateProfile={handleUpdateProfile} />
+                        <main className="flex-grow">
+                            {isLoggedIn ? (
+                                <Dashboard
+                                    user={currentUser}
+                                    isAdmin={isAdmin}
+                                    members={users}
+                                    onDeleteMember={handleDeleteUser}
+                                    onEditMember={handleEditUser}
+                                    onAddMember={handleAddMember}
+                                    onRefresh={fetchUsers}
+                                />
+                            ) : (
+                                <Hero onLogin={handleLogin} onSignup={handleSignup} />
+                            )}
+                            <Chatbot />
+                        </main>
+                        <footer className="bg-slate-50 border-t border-slate-200 py-6 text-center text-sm text-slate-500">
+                            © {new Date().getFullYear()} (주)신우밸브. All rights reserved.
+                        </footer>
+                    </>
+                } />
+            </Routes>
+        </div>
+    );
+}
+
+export default App;
