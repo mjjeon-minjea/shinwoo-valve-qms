@@ -55,8 +55,33 @@ export const api = {
                 // If not found, return empty or 404? 
                 // Existing app expects empty object or array sometimes, keeping it simple.
             } else {
-                // Get All
-                result = await query.select('*').order('created_at', { ascending: false });
+                // Get All - Recursive fetch to bypass 1000 row limit
+                let allData = [];
+                let page = 0;
+                const pageSize = 1000;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const { data, error } = await supabase
+                        .from(table)
+                        .select('*')
+                        .order('created_at', { ascending: false })
+                        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+                    if (error) throw error;
+
+                    if (data) {
+                        allData = allData.concat(data);
+                        if (data.length < pageSize) {
+                            hasMore = false;
+                        } else {
+                            page++;
+                        }
+                    } else {
+                        hasMore = false;
+                    }
+                }
+                result = { data: allData, error: null };
             }
 
             // 2. POST (Create)
