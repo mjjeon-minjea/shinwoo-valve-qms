@@ -1,4 +1,5 @@
 import db from '../../db.json';
+// const db = { inspections: [], users: [], notices: [], resources: [], inquiries: [] }; // Mock empty db for build test
 
 const IS_PROD = import.meta.env.PROD;
 
