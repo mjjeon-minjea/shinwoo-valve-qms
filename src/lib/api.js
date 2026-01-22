@@ -1,58 +1,102 @@
-import db from '../../db.json';
-// const db = { inspections: [], users: [], notices: [], resources: [], inquiries: [] }; // Mock empty db for build test
+import { createClient } from '@supabase/supabase-js';
 
-const IS_PROD = import.meta.env.PROD;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Helper to simulate network delay in mock mode
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export const api = {
     fetch: async (url, options = {}) => {
-        if (!IS_PROD) {
-            // Development: Use real backend
-            return window.fetch(url, options);
-        }
+        // Parse endpoint from URL (e.g., '/inspections' from '/inspections/123')
+        // url format: /table or /table/id or /table?query...
+        const path = url.split('?')[0];
+        const segments = path.split('/').filter(Boolean); // ['inspections', '123']
+        const table = segments[0]; // 'inspections', 'users', etc.
+        const id = segments[1];    // '123' or undefined
 
-        // Production: Use Mock Data
-        console.log(`[Mock API] Request to ${url}`, options);
-        await delay(300); // Simulate latency
-
-        const endpoint = url.split('?')[0]; // Simple parsing
         const method = options.method || 'GET';
+        let body = options.body ? JSON.parse(options.body) : null;
 
-        // 1. GET Requests
+        console.log(`[Supabase API] ${method} ${url}`, body);
+
+        // Special Case: Settings (Hardcoded for single row 'global')
+        if (table === 'settings') {
+            if (method === 'GET') {
+                const { data, error } = await supabase.from('settings').select('*').eq('id', 'global').single();
+                if (error) throw error;
+                return new Response(JSON.stringify(data));
+            }
+            if (method === 'PUT') {
+                const { data, error } = await supabase.from('settings').upsert(body).select().single();
+                if (error) throw error;
+                return new Response(JSON.stringify(data));
+            }
+        }
+
+        // Special Case: Batch Operations (Dashboard)
+        if (table === 'inspections' && id === 'batch') {
+            if (method === 'POST') {
+                // Bulk Insert
+                const { data, error } = await supabase.from('inspections').insert(body).select();
+                if (error) throw error;
+                return new Response(JSON.stringify({ success: true, count: data.length }));
+            }
+        }
+
+        // General REST-like handlers
+        let query = supabase.from(table);
+        let result = { data: null, error: null };
+
+        // 1. GET (Read)
         if (method === 'GET') {
-            // Handle /inspections
-            if (endpoint.startsWith('/inspections')) {
-                // If ID is provided: /inspections/123
-                const id = endpoint.split('/').pop();
-                if (id && id !== 'inspections') {
-                    // Not implemented for list view, but if needed
-                    // return new Response(JSON.stringify(db.inspections.find(i => i.id === id) || {}));
-                }
-                return new Response(JSON.stringify(db.inspections || []));
+            if (id) {
+                // Get One
+                result = await query.select('*').eq('id', id).single();
+                // If not found, return empty or 404? 
+                // Existing app expects empty object or array sometimes, keeping it simple.
+            } else {
+                // Get All
+                result = await query.select('*').order('created_at', { ascending: false });
             }
-            if (endpoint.startsWith('/users')) return new Response(JSON.stringify(db.users || []));
-            if (endpoint.startsWith('/notices')) return new Response(JSON.stringify(db.notices || []));
-            if (endpoint.startsWith('/resources')) return new Response(JSON.stringify(db.resources || []));
-            if (endpoint.startsWith('/inquiries')) return new Response(JSON.stringify(db.inquiries || []));
-            if (endpoint.startsWith('/settings/global')) {
-                return new Response(JSON.stringify({ id: 'global', popupEnabled: true }));
+
+            // 2. POST (Create)
+        } else if (method === 'POST') {
+            result = await query.insert(body).select().single();
+            // Transform response to match existing expectations { success: true, ... }
+            if (!result.error) {
+                return new Response(JSON.stringify({ success: true, ...result.data }));
             }
+
+            // 3. PUT (Update)
+        } else if (method === 'PUT') {
+            // Note: URL might be /users without ID, but body has ID. Or /users/1.
+            // Safe to assume body has ID for updates usually.
+            const targetId = id || body.id;
+            result = await query.update(body).eq('id', targetId).select().single();
+
+            // 4. DELETE
+        } else if (method === 'DELETE') {
+            // Special handling for bulk delete?
+            // Dashboard.jsx sends DELETE to /inspections (no ID) -> Delete All?
+            // Or /inspections/123
+            if (id) {
+                result = await query.delete().eq('id', id);
+            } else {
+                // Dangerous! Delete all? check existing logic
+                // server.js had 'server.delete('/inspections', ... db.inspections = [])'
+                // So yes, delete all.
+                result = await query.delete().neq('id', '0'); // Hack to delete all rows
+            }
+            return new Response(JSON.stringify({ success: true }));
         }
 
-        // 2. Non-GET Requests (Write operations)
-        // In static demo, these cannot permanently save data.
-        // We will return success to "fake" the interaction.
-        if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
-            console.log('[Mock API] Write operation simulation success');
-            // For batch upload simulation
-            if (endpoint.includes('batch')) {
-                return new Response(JSON.stringify({ success: true, count: JSON.parse(options.body).length }));
-            }
-            return new Response(JSON.stringify({ success: true, id: Date.now() }));
+        if (result.error) {
+            console.error('Supabase Error:', result.error);
+            // existing app might expect empty array on error for lists?
+            if (result.error.code === 'PGRST116') return new Response(JSON.stringify({})); // Not found (single)
+            throw new Error(result.error.message);
         }
 
-        return new Response(JSON.stringify([]));
+        return new Response(JSON.stringify(result.data));
     }
 };
