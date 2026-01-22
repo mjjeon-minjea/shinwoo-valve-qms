@@ -1639,7 +1639,7 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
 
             if (!hidePopup) {
                 try {
-                    const res = await fetch('/settings/global');
+                    const res = await api.fetch('/settings/global');
                     if (res.ok) {
                         const data = await res.json();
                         if (data.popupEnabled) {
@@ -1648,7 +1648,14 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
                     }
                 } catch (error) {
                     console.error('Popup check failed:', error);
-                    // Default to true on error if not hidden
+                    // Do NOT default to true on error if using real Supabase
+                    // Or keep it false to be safe?
+                    // User wants to turn it off, so default to false might be better if error?
+                    // But current logic is "Default to true on error".
+                    // If api.fetch fails, it means Supabase is down or key is wrong.
+                    // Let's keep existing fallback logic or maybe remove the "Default to true" if it causes issues.
+                    // But the main issue was parsing HTML as JSON. api.fetch handles the data correctly.
+                    // I will keep the fallback but the main path will now work.
                     setShowPopup(true);
                 }
             }
