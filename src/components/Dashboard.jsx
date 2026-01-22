@@ -1349,7 +1349,7 @@ const HomepageSettings = () => {
 
     const fetchSettings = async () => {
         try {
-            const res = await fetch('/settings/global');
+            const res = await api.fetch('/settings/global');
             if (res.ok) {
                 const data = await res.json();
                 setPopupEnabled(data.popupEnabled);
@@ -1370,7 +1370,7 @@ const HomepageSettings = () => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch('/settings/global', {
+            const res = await api.fetch('/settings/global', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: 'global', popupEnabled })

@@ -36,6 +36,9 @@ export const api = {
             if (endpoint.startsWith('/notices')) return new Response(JSON.stringify(db.notices || []));
             if (endpoint.startsWith('/resources')) return new Response(JSON.stringify(db.resources || []));
             if (endpoint.startsWith('/inquiries')) return new Response(JSON.stringify(db.inquiries || []));
+            if (endpoint.startsWith('/settings/global')) {
+                return new Response(JSON.stringify({ id: 'global', popupEnabled: true }));
+            }
         }
 
         // 2. Non-GET Requests (Write operations)
