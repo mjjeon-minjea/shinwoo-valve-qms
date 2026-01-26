@@ -199,18 +199,13 @@ const InboundAnalysis = () => {
                     <p className="font-bold text-lg mb-2 text-yellow-400">Total: {data.value}건</p>
 
                     {detailKeys.length > 0 && (
-                        <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar">
-                            {detailKeys.slice(0, 8).map((key) => (
-                                <div key={key} className="flex justify-between gap-6 items-center">
-                                    <span className="text-slate-300 truncate max-w-[120px]" title={key}>{key}</span>
-                                    <span className="font-mono text-white">{details[key]}</span>
+                        <div className="space-y-1 max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
+                            {detailKeys.map((key) => (
+                                <div key={key} className="flex justify-between gap-6 items-center hover:bg-slate-700/50 p-1 rounded">
+                                    <span className="text-slate-300 truncate max-w-[150px]" title={key}>{key}</span>
+                                    <span className="font-mono text-white flex-shrink-0">{details[key]}</span>
                                 </div>
                             ))}
-                            {detailKeys.length > 8 && (
-                                <div className="text-center pt-1 text-slate-500 italic">
-                                    외 {detailKeys.length - 8}개 더보기...
-                                </div>
-                            )}
                         </div>
                     )}
                 </div>
