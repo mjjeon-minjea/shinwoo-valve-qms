@@ -6,7 +6,9 @@
   "homepage": "https://mjjeon-minjea.github.io/shinwoo-valve-qms",
   "scripts": {
     "dev": "vite --host",
-    "db": "node server/index.js",
+    "server:json": "node server.js",
+    "server:gateway": "node server/index.js",
+    "db": "concurrently \"npm run server:json\" \"npm run server:gateway\"",
     "start": "concurrently \"npm run db\" \"npm run dev\"",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
