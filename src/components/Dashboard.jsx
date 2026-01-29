@@ -17,6 +17,7 @@ import popupImage from '../assets/popup.png';
 import NoticeBoard from './NoticeBoard';
 import ResourceRoom from './ResourceRoom';
 import { api } from '../lib/api';
+import NonConformanceStatus from './NonConformanceStatus';
 
 // --- Helper Functions ---
 
@@ -1664,6 +1665,7 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
             case 'notices': return <NoticeBoard />;
             case 'resources': return <ResourceRoom />;
             case 'inbound_analysis': return <InboundAnalysis />;
+            case 'inbound_status': return <NonConformanceStatus />;
             case 'inbound_history': return <InboundHistory />;
             case 'process': return <PlaceholderView title="공정검사 현황" icon={Settings} />;
             case 'final': return <PlaceholderView title="최종검사 현황" icon={CheckCircle} />;
@@ -1744,7 +1746,14 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
                                         className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'inbound_analysis' ? 'text-primary-600 bg-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                                             }`}
                                     >
-                                        분석 리포트
+                                        대시보드
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('inbound_status')}
+                                        className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'inbound_status' ? 'text-primary-600 bg-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                                            }`}
+                                    >
+                                        부적합 현황 조회
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('inbound_history')}
