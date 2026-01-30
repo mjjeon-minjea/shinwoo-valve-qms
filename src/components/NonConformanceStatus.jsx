@@ -27,11 +27,13 @@ const NonConformanceStatus = () => {
                 api.fetch('/item_master')
             ]);
             
-            if (inspRes.ok && itemRes.ok) {
+            if (inspRes.ok) {
                 const inspData = await inspRes.json();
-                const itemData = await itemRes.json();
-                
                 setInspections(Array.isArray(inspData) ? inspData : []);
+            }
+            
+            if (itemRes.ok) {
+                const itemData = await itemRes.json();
                 setItems(Array.isArray(itemData) ? itemData : []);
             }
         } catch (error) {

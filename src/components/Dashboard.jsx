@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area,
     PieChart, Pie, Cell, BarChart, Bar, Legend, ComposedChart
@@ -8,7 +9,7 @@ import {
     Settings, CheckCircle, HelpCircle, ChevronRight, ChevronDown,
     Users, MoreHorizontal, UserCheck, User, RefreshCw, MessageSquare,
     Plus, Trash2, Edit, X, Upload, FileText, LayoutDashboard, Search,
-    Monitor, Sliders, ToggleLeft, ToggleRight, Save
+    Monitor, Sliders, ToggleLeft, ToggleRight, Save, Filter
 } from 'lucide-react';
 import Chatbot from './Chatbot';
 import ProgressModal from './ProgressModal';
@@ -18,6 +19,7 @@ import NoticeBoard from './NoticeBoard';
 import ResourceRoom from './ResourceRoom';
 import { api } from '../lib/api';
 import NonConformanceStatus from './NonConformanceStatus';
+import InspectionAnalysisDashboard from './InspectionAnalysisDashboard';
 
 // --- Helper Functions ---
 
@@ -533,9 +535,13 @@ const InboundHistory = () => {
             try {
                 const bstr = evt.target.result;
                 const wb = XLSX.read(bstr, { type: 'binary' });
-                const wsname = wb.SheetNames[0];
-                const ws = wb.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws);
+                // Read ALL sheets instead of just the first one
+                let allData = [];
+                wb.SheetNames.forEach(sheetName => {
+                    const ws = wb.Sheets[sheetName];
+                    const sheetData = XLSX.utils.sheet_to_json(ws);
+                    allData = allData.concat(sheetData);
+                });
 
                 // Helper to safely parse numbers (handling '-' as 0)
                 const parseNum = (val) => {
@@ -545,7 +551,7 @@ const InboundHistory = () => {
                 };
 
                 // Map Excel headers to our schema with ROBUST FUZZY SEARCH
-                const mappedData = data.map((row) => {
+                const mappedData = allData.map((row) => {
                     // Helper to find value by searching keys fuzzy (ignore spaces)
                     const findVal = (targets) => {
                         const rowKeys = Object.keys(row);
@@ -575,12 +581,32 @@ const InboundHistory = () => {
                         defectQuantity: defectQty,
                         result: defectQty > 0 ? '불합격' : '합격',
                         defectType: findVal(['불량유형', '불량내용']) || '',
+                        itemType: (() => {
+                            let val = findVal(['품목유형', '제품유형']) || '';
+                            if (typeof val === 'string') {
+                                val = val.trim();
+                                // Map 'China Factory' or 'SMART VALVE...' to 'Outsourced Painting'
+                                if (val === '중국공장' || val.includes('SMART VALVE') || val.includes('DALIAN')) return '외주도장';
+                            }
+                            return val;
+                        })(),
                         // Critical Update: Fuzzy match for Inspection Report No
                         inspectionReportNo: findVal(['인수검사성적서NO', '인수검사성적서', '성적서NO', '성적서번호']) || ''
                     };
                 });
 
-                const validData = mappedData.filter(d => d.itemName !== 'Unknown');
+                // Filter out empty rows, but keep rows with valid itemType even if itemName is Unknown
+                const validData = mappedData.filter(d => {
+                    // Basic check: must have at least date or supplier or itemName or itemType
+                    const hasData = d.date !== null && (d.supplier !== 'Unknown' || d.itemName !== 'Unknown' || d.itemType !== '');
+                    return hasData;
+                });
+
+                // Debug: Count mapped Outsourced Painting
+                const outsourcedCount = validData.filter(d => d.itemType === '외주도장').length;
+                if (outsourcedCount > 0) {
+                     alert(`'중국공장' 데이터 ${outsourcedCount}건을 '외주도장'으로 자동 변환했습니다.`);
+                }
 
                 // Start Upload (Batch)
                 updateProgress(1, 100, 'upload'); // Show "Uploading..."
@@ -666,25 +692,25 @@ const InboundHistory = () => {
         if (window.confirm('정말로 모든 검사 이력을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
             if (window.confirm('전체 삭제를 진행합니다. 정말 확실합니까?')) {
                 try {
-                    updateProgress(1, 100, 'delete'); // Show "Deleting..."
-
-                    // Batch Delete Request
+                    updateProgress(50, 100, 'delete'); // Show "Deleting..."
+                    
+                    // Server supports batch delete via custom route in server.js
                     const res = await api.fetch('/inspections', { method: 'DELETE' });
 
                     if (res.ok) {
                         updateProgress(100, 100, 'delete');
-
                         setTimeout(() => closeProgress(), 500);
-
-                        alert('모든 데이터가 즉시 삭제되었습니다. (Batch Processing)');
+                        alert('모든 데이터가 삭제되었습니다.');
                         fetchInspections();
                     } else {
-                        throw new Error('Batch Delete Failed');
+                        // Fallback if server returns error (e.g. 404)
+                        throw new Error(`Batch delete failed: ${res.status}`);
                     }
+
                 } catch (error) {
                     console.error('Delete All Error:', error);
                     closeProgress();
-                    alert('삭제 처리 중 오류가 발생했습니다.');
+                    alert(`삭제 처리 중 오류가 발생했습니다: ${error.message}`);
                 }
             }
         }
@@ -695,9 +721,47 @@ const InboundHistory = () => {
         setIsModalOpen(true);
     };
 
+    // --- Filtering Logic ---
+    const [filters, setFilters] = useState({});
+    const [activeFilterColumn, setActiveFilterColumn] = useState(null);
+
+    const getUniqueValues = (key) => {
+        const values = inspections
+            .map(item => item[key] || '(미지정)')
+            .filter(val => val !== '(미지정)'); // Exclude empty/unspecified options
+        return [...new Set(values)].sort();
+    };
+
+    const handleFilterChange = (key, value) => {
+        setFilters(prev => {
+            const current = prev[key] || [];
+            if (current.includes(value)) {
+                const updated = current.filter(v => v !== value);
+                const newFilters = { ...prev, [key]: updated };
+                if (updated.length === 0) delete newFilters[key]; 
+                return newFilters;
+            } else {
+                return { ...prev, [key]: [...current, value] };
+            }
+        });
+    };
+
+    // ... (inside filteredInspections)
+    const filteredInspections = inspections.filter(item => {
+        return Object.entries(filters).every(([key, selectedValues]) => {
+            if (!selectedValues || selectedValues.length === 0) return true;
+             const itemValue = item[key] || '(미지정)'; // Match the display value
+             return selectedValues.includes(itemValue);
+        });
+    });
+
     // Pagination Logic
     // Sort by date/id desc first (newest top)
-    const sortedInspections = [...inspections].sort((a, b) => b.id - a.id);
+    const sortedInspections = [...filteredInspections].sort((a, b) => {
+         if (a.id < b.id) return 1;
+         if (a.id > b.id) return -1;
+         return 0;
+    });
     const indexOfLastItem = currentPage * itemsPerPage;
     const indexOfFirstItem = indexOfLastItem - itemsPerPage;
     const currentItems = sortedInspections.slice(indexOfFirstItem, indexOfLastItem);
@@ -754,16 +818,58 @@ const InboundHistory = () => {
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-200">
                         <thead className="bg-slate-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">날짜</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">공급사</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">품목명</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">총수량</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">검사수량</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">판정</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">불량유형</th>
+                                {['date', 'supplier', 'itemName', 'itemType', 'totalQuantity', 'inspectionQuantity', 'result', 'defectType'].map((key, index) => {
+                                    const labels = {
+                                        date: '날짜', supplier: '공급사', itemName: '품목명', itemType: '품목유형',
+                                        totalQuantity: '총수량', inspectionQuantity: '검사수량', result: '판정', defectType: '불량유형'
+                                    };
+                                    // Columns safe to filter (categorical or dates)
+                                    const filterable = ['date', 'supplier', 'itemName', 'itemType', 'result', 'defectType'].includes(key);
+
+                                    return (
+                                        <th key={key} className={`px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase ${index === 7 ? '' : ''} relative`}>
+                                            <div className={`flex items-center gap-1 ${filterable ? 'cursor-pointer hover:bg-slate-100 p-1 rounded' : ''}`}
+                                                 onClick={() => filterable && setActiveFilterColumn(activeFilterColumn === key ? null : key)}>
+                                                {labels[key]}
+                                                {filterable && (
+                                                    <Filter className={`w-3 h-3 ${filters[key] ? 'text-blue-600 fill-blue-600' : 'text-slate-300'}`} />
+                                                )}
+                                            </div>
+                                            
+                                            {/* Dropdown */}
+                                            {activeFilterColumn === key && (
+                                                <div className="absolute top-full left-0 mt-1 w-60 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+                                                    <div className="p-2 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                                                        <span className="text-xs font-bold text-slate-700">필터 선택</span>
+                                                        <button onClick={() => clearFilter(key)} className="text-xs text-red-500 hover:underline">초기화</button>
+                                                    </div>
+                                                    <div className="max-h-60 overflow-y-auto p-2 space-y-1">
+                                                        {getUniqueValues(key).map(val => (
+                                                            <label key={val} className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={filters[key]?.includes(val) ?? false}
+                                                                    onChange={() => handleFilterChange(key, val)}
+                                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                                                                />
+                                                                <span className="text-sm text-slate-600 truncate">{val}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                    <div className="p-2 border-t border-slate-100 bg-slate-50 text-center">
+                                                        <button 
+                                                            onClick={() => setActiveFilterColumn(null)}
+                                                            className="text-xs text-primary-600 font-medium hover:text-primary-800"
+                                                        >
+                                                            닫기
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </th>
+                                    );
+                                })}
                                 <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">관리</th>
-                            </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-slate-200">
                             {currentItems.length === 0 ? (
@@ -774,6 +880,7 @@ const InboundHistory = () => {
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">{formatDate(item.date)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">{item.supplier}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.itemName}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{item.itemType || '(미지정)'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">{Number(item.totalQuantity).toLocaleString()}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{Number(item.inspectionQuantity).toLocaleString()}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1621,6 +1728,7 @@ const Home = ({ setActiveTab }) => {
 };
 
 const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAddMember, onRefresh }) => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('home'); // Default to home
     const [isMenuOpen, setIsMenuOpen] = useState(true);
     const [mainExpanded, setMainExpanded] = useState(true);
@@ -1665,6 +1773,7 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
             case 'notices': return <NoticeBoard />;
             case 'resources': return <ResourceRoom />;
             case 'inbound_analysis': return <InboundAnalysis />;
+            case 'inspection_analysis': return <InspectionAnalysisDashboard />;
             case 'inbound_status': return <NonConformanceStatus />;
             case 'inbound_history': return <InboundHistory />;
             case 'process': return <PlaceholderView title="공정검사 현황" icon={Settings} />;
@@ -1739,14 +1848,21 @@ const Dashboard = ({ user, isAdmin, members, onDeleteMember, onEditMember, onAdd
                                 <ChevronDown className={`w-4 h-4 transition-transform ${inboundExpanded ? 'transform rotate-180' : ''} ${activeTab.includes('inbound') ? 'text-primary-500' : 'text-slate-400'}`} />
                             </button>
 
+
                             {inboundExpanded && (
                                 <div className="mt-1 space-y-1 pl-11">
+                                    <button
+                                        onClick={() => setActiveTab('inspection_analysis')}
+                                        className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'inspection_analysis' ? 'text-primary-600 bg-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+                                    >
+                                        종합분석현황
+                                    </button>
                                     <button
                                         onClick={() => setActiveTab('inbound_analysis')}
                                         className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === 'inbound_analysis' ? 'text-primary-600 bg-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                                             }`}
                                     >
-                                        대시보드
+                                        대시보드 (기존)
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('inbound_status')}

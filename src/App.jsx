@@ -6,6 +6,7 @@ import Chatbot from './components/Chatbot';
 import { api } from './lib/api';
 
 import { Routes, Route } from 'react-router-dom';
+import InspectionAnalysisDashboard from './components/InspectionAnalysisDashboard';
 import QualificationExam from './components/QualificationExam';
 
 function App() {
@@ -186,6 +187,14 @@ function App() {
                             © {new Date().getFullYear()} (주)신우밸브. All rights reserved.
                         </footer>
                     </>
+                } />
+                <Route path="/inspection-analysis" element={
+                     <>
+                        <Header isLoggedIn={isLoggedIn} onLogout={handleLogout} currentUser={currentUser} onUpdateProfile={handleUpdateProfile} />
+                        <div className="p-8 bg-slate-50 min-h-screen">
+                            <InspectionAnalysisDashboard />
+                        </div>
+                     </>
                 } />
             </Routes>
         </div>

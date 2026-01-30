@@ -39,7 +39,8 @@ function importProducts() {
         var dbData = JSON.parse(fs.readFileSync(DB_FILE_PATH, 'utf8'));
 
         // Update products array
-        dbData.products = products;
+        // Update item_master array (corrected from products)
+        dbData.item_master = products;
 
         // Write back
         console.log("Writing to db.json...");
